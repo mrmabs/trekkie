@@ -41,19 +41,46 @@ void battery_status_layer_update(Layer* layer, GContext* ctx) {
 void date_update(struct tm* tick_time, TimeUnits units_changed) {
   static char date_text[] = "00.00.00";
   static char nice_date_text[] = "Xxx. Xxx. 00";
-  static char stardate_text[] = "0000.000";
 
   // Date Layers
   strftime(date_text, sizeof(date_text), "%d.%m.%y", tick_time);
   strftime(nice_date_text, sizeof(nice_date_text), "%a.%n%b.%n%d", tick_time);
-  strftime(stardate_text, sizeof(stardate_text), "%Y.%j", tick_time); // Based on Star Trek 2009 film's Stardate format.
   text_layer_set_text(text_date_layer, date_text);
   text_layer_set_text(text_nice_date_layer, nice_date_text);
+}
+
+void stardate_update(struct tm* tick_time, TimeUnits units_changed) {
+  // We need to get text versions of the date/time info before we can proceed, this is a pain, Pebble
+  static char stardate_text[] = "00000.00";
+  static char year[] = "00"; // year for stardate
+  static char doy[] = "000"; // day of year
+  static char hour[] = "00";
+  static char mins[] = "00";
+  float stardate;
+  float decdays; // decimal days
+  float yearoffset; // days since 01/01/2000 before this year
+  
+  // Get the ascii versions of the data we require
+  strftime(year, sizeof(year), "%y", tick_time);
+  strftime(doy, sizeof(doy), "%j", tick_time);
+  strftime(hour, sizeof(hour), "%H", tick_time); // need to account for timezone!
+  strftime(mins, sizeof(mins), "%M", tick_time);
+  // calculate the part of year value (assumption: 1 year = 1000 stardates)
+  yearoffset = (atoi(year) * 365) + (int)((atoi(year) - 1) / 4); // days per year, accounting for leap days since 2000. This will not work as intended after the year 2100. The "- 1" takes account of leap years /after/ the leap year is over
+  decdays = ((((atoi(mins) / 60.0) + atoi(hour)) / 24.0) + atoi(doy) - 1);
+  stardate = (yearoffset + decdays) * (1000 / 365.242196); // one exact year, time sync to atom clocks should account for leap seconds
+  
+  // StarDate Layer
+  snprintf(stardate_text, sizeof(stardate_text), "%05d.%2d", (int)stardate, (int)(stardate * 1000) % 1000);
   text_layer_set_text(text_stardate_layer, stardate_text);
 }
 
 void time_update(struct tm* tick_time, TimeUnits units_changed) {
   if(units_changed>=DAY_UNIT) date_update(tick_time, units_changed);
+
+  //StarDate - needs to be done before time and date are modified - needs to have utc sent to it, rather than localtime
+  stardate_update(tick_time, units_changed);
+
   static char time_text[6];
   if (clock_is_24h_style()) {
     static const char *time_format="%R";
@@ -63,6 +90,7 @@ void time_update(struct tm* tick_time, TimeUnits units_changed) {
     clock_copy_time_string(time_text, tick_time->tm_hour%12<10?5:6);
     text_layer_set_text(text_ampm_layer, tick_time->tm_hour<12?"am":"pm");
   }
+  
   // Time layer
   text_layer_set_text(text_time_layer, time_text);
 }
@@ -188,3 +216,4 @@ int main(void) {
   app_event_loop();
   deinit();
 }
+
